@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar — BakeBum!</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+body{font-family:system-ui,sans-serif;background:#a8e6cf;color:#4a2432;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+.card{background:#f6f1e7;border:3px solid #c9c1b0;border-radius:20px;padding:28px;max-width:340px;width:100%;text-align:center;box-shadow:0 10px 0 rgba(74,36,50,.12),0 18px 34px rgba(74,36,50,.18)}
+h1{font-size:30px;margin:0 0 4px;color:#d13b61;letter-spacing:.5px}
+.sub{margin:0 0 6px;font-size:14px;opacity:.85}
+p{line-height:1.45}
+button{background:#4db855;color:#fff;border:0;border-bottom:5px solid #35853d;border-radius:12px;padding:14px 18px;font-size:16px;font-weight:700;cursor:pointer;width:100%}
+button:active{transform:translateY(2px);border-bottom-width:3px}
+button.alt{background:#857fe0;border-bottom-color:#5d57b0;margin-top:8px}
+input{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:2px solid #c9c1b0;background:#fffdf8;color:#4a2432;font-size:15px;margin-top:8px}
+.sep{margin:18px 0 4px;opacity:.7;font-size:13px}
+a{color:#d13b61;font-weight:600}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>BakeBum!</h1>
+<p class="sub">Confeitaria Viva</p>
+<p id="msg">Conectando…</p>
+<button id="btn" style="display:none">Entrar com Google</button>
+<div id="form" style="display:none">
+<p class="sep">— ou com e-mail e senha —</p>
+<input id="nome" type="text" placeholder="Seu nome (só no cadastro)" autocomplete="name">
+<input id="email" type="email" placeholder="E-mail" autocomplete="email">
+<input id="senha" type="password" placeholder="Senha" autocomplete="current-password">
+<button id="entrar" style="margin-top:12px">Entrar</button>
+<button id="criar" class="alt">Criar conta</button>
+</div>
+  <p style="margin-top:18px;font-size:14px"><a href="privacy.html">Política de Privacidade</a></p>
+</div>
+<script>
+var SB_URL = "https://llcssfybvmcvlmkdfycj.supabase.co";
+var SB_KEY = "sb_publishable_YtzUJIjZO-bqqGFDU7CyhQ_hzMZx_CB";
+var sb = supabase.createClient(SB_URL, SB_KEY);
+var params = new URLSearchParams(location.search);
+var code = params.get('code') || localStorage.getItem('bb_code') || '';
+if (params.get('code')) localStorage.setItem('bb_code', code);
+var msg = document.getElementById('msg');
+var btn = document.getElementById('btn');
+var form = document.getElementById('form');
+async function finish(session) {
+  var u = session.user;
+  var meta = u.user_metadata || {};
+  var name = meta.full_name || meta.name || (u.email ? u.email.split('@')[0] : 'Jogador');
+  var avatar = meta.avatar_url || meta.picture || '';
+  msg.textContent = 'Salvando seu perfil…';
+    var perfil = { login_code: code, user_id: u.id, name: name, avatar_url: avatar, email: u.email || '' };
+  var res = await sb.from('player_profiles').insert(perfil);
+  if (res.error && res.error.code === '23505') {
+    var chk = await sb.rpc('get_login_profile', { p_code: code });
+    if (chk.data && chk.data.length) res = { error: null };
+  }
+  if (res.error) { msg.textContent = 'Algo deu errado ao salvar o perfil (' + (res.error.message || res.error.code || 'erro') + '). Feche esta página e tente de novo pelo jogo.'; return; }
+  msg.textContent = 'Pronto, ' + name.split(' ')[0] + '! Pode voltar ao BakeBum!';
+  btn.style.display = 'none';
+  form.style.display = 'none';
+  localStorage.removeItem('bb_code');
+  await sb.auth.signOut();
+}
+function showForm() {
+  if (!code) { msg.textContent = 'Abra esta página pelo botão "Entrar" dentro do jogo.'; return; }
+  msg.textContent = 'Entre com o Google ou com e-mail e senha:';
+  btn.style.display = 'block';
+  form.style.display = 'block';
+}
+btn.onclick = async function () {
+  var redirect = location.origin + location.pathname + '?code=' + encodeURIComponent(code);
+  await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: redirect } });
+};
+document.getElementById('entrar').onclick = async function () {
+  var email = document.getElementById('email').value.trim();
+  var senha = document.getElementById('senha').value;
+  if (!email || !senha) { msg.textContent = 'Preencha e-mail e senha.'; return; }
+  msg.textContent = 'Entrando…';
+  var r = await sb.auth.signInWithPassword({ email: email, password: senha });
+  if (r.error) { msg.textContent = 'Não foi possível entrar. Confira e-mail e senha.'; return; }
+  await finish(r.data.session);
+};
+document.getElementById('criar').onclick = async function () {
+  var nome = document.getElementById('nome').value.trim();
+  var email = document.getElementById('email').value.trim();
+  var senha = document.getElementById('senha').value;
+  if (!email || !senha) { msg.textContent = 'Preencha e-mail e senha para criar a conta.'; return; }
+  if (senha.length < 6) { msg.textContent = 'A senha precisa de pelo menos 6 caracteres.'; return; }
+  msg.textContent = 'Criando sua conta…';
+  var r = await sb.auth.signUp({ email: email, password: senha, options: { data: { full_name: nome || email.split('@')[0] } } });
+  if (r.error) { msg.textContent = 'Não foi possível criar a conta: ' + r.error.message; return; }
+  if (r.data.session) { await finish(r.data.session); return; }
+  msg.textContent = 'Conta criada! Abra o link de confirmação que enviamos ao seu e-mail e depois entre por aqui.';
+};
+async function init() {
+  var r = await sb.auth.getSession();
+  if (r.data.session) { await finish(r.data.session); return; }
+  showForm();
+}
+init();
+</script>
+</body>
+</html>
